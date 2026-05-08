@@ -72,6 +72,9 @@ final class GameViewModel: ObservableObject {
     // MARK: - Lifecycle
 
     func restart() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            isGameOver = false
+        }
         grid = Self.makeEmptyGrid()
         tray = [nil, nil, nil]
         score = 0
@@ -79,7 +82,6 @@ final class GameViewModel: ObservableObject {
         lastClearCount = 0
         previewCells = []
         previewColor = nil
-        isGameOver = false
         newPersonalBestThisGame = false
         refillTrayIfNeeded()
     }
@@ -273,7 +275,9 @@ final class GameViewModel: ObservableObject {
         let anyFits = remaining.contains(where: { canPlaceAnywhere($0) })
         if !anyFits {
             clearPreview()
-            isGameOver = true
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isGameOver = true
+            }
             gameOverBurstToken &+= 1
             newPersonalBestThisGame = firebase.submitScoreIfPersonalBest(score)
         }

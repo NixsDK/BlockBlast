@@ -51,7 +51,8 @@ struct DraggableShapeView: View {
             .scaleEffect(isDragging ? dragVisualScale : 0.95)
             .opacity(isDragging ? 0.98 : 1.0)
             .offset(dragTranslation)
-            .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDragging)
+            // Don’t animate `isDragging`: it swaps tray vs board cell sizes and can
+            // ripple layout/preference updates so the whole board briefly rescales.
             .gesture(makeDragGesture())
             .onChange(of: shape.id) { _ in
                 dragTranslation = .zero

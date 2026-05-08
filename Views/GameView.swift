@@ -56,7 +56,6 @@ struct GameView: View {
                     .transition(.opacity.combined(with: .scale))
             }
         }
-        .animation(.easeInOut(duration: 0.3), value: viewModel.isGameOver)
     }
 
     // MARK: - Header (score + combo + personal best)
@@ -83,12 +82,17 @@ struct GameView: View {
                 Text("\(firebase.personalBest)")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.yellow)
-                if viewModel.comboStreak > 1 {
-                    Text("Combo x\(viewModel.comboStreak)")
-                        .font(.caption.bold())
-                        .foregroundStyle(.orange)
-                        .transition(.scale.combined(with: .opacity))
+                // Fixed height so showing/hiding combo doesn’t resize the header and
+                // relayout the board (that read as an intermittent “zoom”).
+                ZStack(alignment: .trailing) {
+                    Color.clear.frame(height: 20)
+                    if viewModel.comboStreak > 1 {
+                        Text("Combo x\(viewModel.comboStreak)")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                    }
                 }
+                .frame(height: 20)
             }
         }
         .padding(.horizontal, 24)
