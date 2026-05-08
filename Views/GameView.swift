@@ -98,7 +98,7 @@ struct GameView: View {
     // MARK: - Header (score + combo + personal best)
 
     private var header: some View {
-        HStack(alignment: .center) {
+        HStack(alignment: .center, spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("SCORE")
                     .font(.caption2.weight(.semibold))
@@ -108,8 +108,9 @@ struct GameView: View {
                     .foregroundStyle(.white)
                     .monospacedDigit()
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
+            gameLogo
 
             VStack(alignment: .trailing, spacing: 2) {
                 Text("BEST")
@@ -131,8 +132,25 @@ struct GameView: View {
                 }
                 .frame(height: 20)
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
         }
         .padding(.horizontal, 24)
+    }
+
+    /// Uses `blockblast.jpg` from the app bundle (`Resources/` — ensure **Copy Bundle Resources**).
+    private var gameLogo: some View {
+        Image("blockblast")
+            .resizable()
+            .interpolation(.high)
+            .scaledToFit()
+            .frame(width: 46, height: 46)
+            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+            .accessibilityLabel("BlockBlast logo")
     }
 
     // MARK: - Tray (3 draggable shapes)
