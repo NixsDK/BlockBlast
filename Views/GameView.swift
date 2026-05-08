@@ -29,28 +29,21 @@ struct GameView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            GeometryReader { geo in
-                let boardInner = Self.boardInnerDimension(for: geo)
-                VStack(spacing: 16) {
-                    header
-                        .frame(height: Self.headerHeight)
-                    BoardView(viewModel: viewModel, gridInnerDimension: boardInner)
-                        .padding(.horizontal, 16)
-                    trayView
-                        .id(viewModel.trayContentsSignature)
-                        .frame(height: Self.trayAreaHeight)
-                        .clipped()
-                        .padding(.horizontal, 16)
-                    Spacer(minLength: 0)
-                }
-                .padding(.top, 12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
-                .onPreferenceChange(BoardFramePreferenceKey.self) { boardFrameInGlobal = $0 }
-                .environment(\.boardCellSize, boardCellSize)
-                .environment(\.boardFrameInGlobal, boardFrameInGlobal)
+            VStack(spacing: 16) {
+                header
+                BoardView(viewModel: viewModel)
+                    .padding(.horizontal, 16)
+                trayView
+                    .id(viewModel.trayContentsSignature)
+                    .frame(height: 130)
+                    .padding(.horizontal, 16)
+                Spacer(minLength: 0)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .padding(.top, 12)
+            .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
+            .onPreferenceChange(BoardFramePreferenceKey.self) { boardFrameInGlobal = $0 }
+            .environment(\.boardCellSize, boardCellSize)
+            .environment(\.boardFrameInGlobal, boardFrameInGlobal)
 
             // Combo confetti — fires when the player clears 3+ lines at once.
             // The opacity trick lets the same view stay mounted (preserving
@@ -64,22 +57,6 @@ struct GameView: View {
                     .transition(.opacity.combined(with: .scale))
             }
         }
-    }
-
-    /// Fixed chrome so vertical math for `boardInnerDimension` stays stable.
-    private static let headerHeight: CGFloat = 82
-    private static let trayAreaHeight: CGFloat = 130
-
-    /// Locked square size for the 8×8 cells (not counting BoardView’s 8pt rim padding).
-    private static func boardInnerDimension(for geo: GeometryProxy) -> CGFloat {
-        let safe = geo.safeAreaInsets
-        let usableH = geo.size.height - safe.top - safe.bottom
-        /// Everything except the grid cells themselves: top pad, header, gaps, board chrome (16), tray.
-        let chromeExcludingInnerCells = 12 + headerHeight + 16 + 16 + 16 + trayAreaHeight
-        let verticalBudget = usableH - chromeExcludingInnerCells
-        let boardSlotWidth = geo.size.width - 32
-        let inner = min(boardSlotWidth - 16, verticalBudget)
-        return max(120, inner)
     }
 
     // MARK: - Header (score + combo + personal best)

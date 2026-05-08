@@ -4,9 +4,8 @@
 //
 //  The 8x8 game board, rendered with `LazyVGrid` per the project brief.
 //
-//  When `gridInnerDimension` is set by `GameView`, the grid stays that exact
-//  square size so tray drags / header tweaks don’t change the proposal and
-//  cause visible “zoom” rescaling.
+//  Cell size comes from the laid-out width. Implicit animations on the grid are
+//  disabled to reduce spurious “zoom” pulses during drag/preview updates.
 //
 
 import SwiftUI
@@ -43,66 +42,42 @@ struct BoardView: View {
 
     @ObservedObject var viewModel: GameViewModel
 
-    /// Pixel width/height of the 8×8 grid **inside** the 8pt chrome padding.
-    /// `nil` → fall back to flexible `GeometryReader` + aspect ratio (previews only).
-    var gridInnerDimension: CGFloat? = nil
-
-    /// The columns spec — strict 8 columns of equal width with no spacing.
     private let columns: [GridItem] = Array(
         repeating: GridItem(.flexible(), spacing: Board.gridSpacing),
         count: GameViewModel.boardSize
     )
 
     var body: some View {
-        Group {
-            if let dim = gridInnerDimension, dim > 32 {
-                chromeWrapped(gridContent(side: dim))
-            } else {
-                GeometryReader { geo in
-                    let s = min(geo.size.width, geo.size.height)
-                    gridContent(side: s)
+        GeometryReader { geo in
+            let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
+            let cellSize = (geo.size.width - totalSpacing) / CGFloat(GameViewModel.boardSize)
+
+            LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
+                ForEach(viewModel.grid.flatMap { $0 }) { cell in
+                    cellView(for: cell, size: cellSize)
                 }
-                .aspectRatio(1, contentMode: .fit)
-                .modifier(ChromeWrap())
             }
-        }
-    }
-
-    private func chromeWrapped(_ grid: some View) -> some View {
-        grid
-            .padding(8)
+            .transaction { $0.animation = nil }
             .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(white: 0.12))
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: BoardFramePreferenceKey.self,
+                        value: proxy.frame(in: .global)
+                    )
+                }
             )
-    }
-
-    @ViewBuilder
-    private func gridContent(side: CGFloat) -> some View {
-        let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
-        let cellSize = (side - totalSpacing) / CGFloat(GameViewModel.boardSize)
-
-        LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
-            ForEach(viewModel.grid.flatMap { $0 }) { cell in
-                cellView(for: cell, size: cellSize)
-            }
+            .coordinateSpace(name: Board.coordinateSpace)
+            .frame(width: geo.size.width, height: geo.size.width)
+            .environment(\.boardCellSize, cellSize)
+            .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
         }
-        .transaction { $0.animation = nil }
+        .aspectRatio(1, contentMode: .fit)
+        .padding(8)
         .background(
-            GeometryReader { proxy in
-                Color.clear.preference(
-                    key: BoardFramePreferenceKey.self,
-                    value: proxy.frame(in: .global)
-                )
-            }
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color(white: 0.12))
         )
-        .coordinateSpace(name: Board.coordinateSpace)
-        .frame(width: side, height: side)
-        .environment(\.boardCellSize, cellSize)
-        .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
     }
-
-    // MARK: - Cell rendering
 
     @ViewBuilder
     private func cellView(for cell: GridCell, size: CGFloat) -> some View {
@@ -132,17 +107,6 @@ struct BoardView: View {
         if cell.color != nil { return Color.white.opacity(0.18) }
         if preview { return Color.white.opacity(0.5) }
         return Color.white.opacity(0.05)
-    }
-}
-
-private struct ChromeWrap: ViewModifier {
-    func body(content: Content) -> some View {
-        content
-            .padding(8)
-            .background(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color(white: 0.12))
-            )
     }
 }
 

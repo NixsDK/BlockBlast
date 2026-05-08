@@ -73,10 +73,10 @@ struct DraggableShapeView: View {
             // Don’t animate `isDragging`: it swaps tray vs board cell sizes and can
             // ripple layout/preference updates so the whole board briefly rescales.
             .gesture(makeDragGesture())
-            .onChange(of: shape.id) { _ in
+            .modifier(TrayPieceIdentityObserver(pieceID: shape.id, reset: {
                 dragTranslation = .zero
                 isDragging = false
-            }
+            }))
             .disabled(viewModel.isGameOver)
             .onDisappear {
                 // Gesture can cancel without `onEnded`; don’t leave preview/offset stuck.
@@ -198,5 +198,20 @@ struct DraggableShapeView: View {
     private func attemptPlacement(at point: CGPoint) -> Bool {
         guard let anchor = anchorCell(for: point) else { return false }
         return viewModel.place(trayIndex: trayIndex, atRow: anchor.row, col: anchor.col)
+    }
+}
+
+// iOS 17+: two-parameter `onChange` (no deprecation). iOS 16: legacy API.
+private struct TrayPieceIdentityObserver: ViewModifier {
+    let pieceID: UUID
+    let reset: () -> Void
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 17.0, *) {
+            content.onChange(of: pieceID) { _, _ in reset() }
+        } else {
+            content.onChange(of: pieceID) { _ in reset() }
+        }
     }
 }
