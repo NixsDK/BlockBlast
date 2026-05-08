@@ -44,7 +44,9 @@ struct LottieView: UIViewRepresentable {
         container.backgroundColor = .clear
         container.isUserInteractionEnabled = false
 
-        let animationView = LottieAnimationView(name: animationName)
+        // Lottie 4.x loads assets via `LottieAnimation` (the old `name:` UIView init was removed).
+        let animation = LottieAnimation.named(animationName, bundle: .main)
+        let animationView = LottieAnimationView(animation: animation)
         animationView.contentMode = .scaleAspectFit
         animationView.loopMode = loopMode
         animationView.backgroundBehavior = .pauseAndRestore
