@@ -29,21 +29,28 @@ struct GameView: View {
             backgroundGradient
                 .ignoresSafeArea()
 
-            VStack(spacing: 16) {
-                header
-                BoardView(viewModel: viewModel)
-                    .padding(.horizontal, 16)
-                trayView
-                    .id(viewModel.trayContentsSignature)
-                    .frame(height: 130)
-                    .padding(.horizontal, 16)
-                Spacer(minLength: 0)
+            GeometryReader { geo in
+                let boardInner = Self.boardInnerDimension(for: geo)
+                VStack(spacing: 16) {
+                    header
+                        .frame(height: Self.headerHeight)
+                    BoardView(viewModel: viewModel, gridInnerDimension: boardInner)
+                        .padding(.horizontal, 16)
+                    trayView
+                        .id(viewModel.trayContentsSignature)
+                        .frame(height: Self.trayAreaHeight)
+                        .clipped()
+                        .padding(.horizontal, 16)
+                    Spacer(minLength: 0)
+                }
+                .padding(.top, 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
+                .onPreferenceChange(BoardFramePreferenceKey.self) { boardFrameInGlobal = $0 }
+                .environment(\.boardCellSize, boardCellSize)
+                .environment(\.boardFrameInGlobal, boardFrameInGlobal)
             }
-            .padding(.top, 12)
-            .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
-            .onPreferenceChange(BoardFramePreferenceKey.self) { boardFrameInGlobal = $0 }
-            .environment(\.boardCellSize, boardCellSize)
-            .environment(\.boardFrameInGlobal, boardFrameInGlobal)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             // Combo confetti — fires when the player clears 3+ lines at once.
             // The opacity trick lets the same view stay mounted (preserving
@@ -59,6 +66,22 @@ struct GameView: View {
         }
     }
 
+    /// Fixed chrome so vertical math for `boardInnerDimension` stays stable.
+    private static let headerHeight: CGFloat = 82
+    private static let trayAreaHeight: CGFloat = 130
+
+    /// Locked square size for the 8×8 cells (not counting BoardView’s 8pt rim padding).
+    private static func boardInnerDimension(for geo: GeometryProxy) -> CGFloat {
+        let safe = geo.safeAreaInsets
+        let usableH = geo.size.height - safe.top - safe.bottom
+        /// Everything except the grid cells themselves: top pad, header, gaps, board chrome (16), tray.
+        let chromeExcludingInnerCells = 12 + headerHeight + 16 + 16 + 16 + trayAreaHeight
+        let verticalBudget = usableH - chromeExcludingInnerCells
+        let boardSlotWidth = geo.size.width - 32
+        let inner = min(boardSlotWidth - 16, verticalBudget)
+        return max(120, inner)
+    }
+
     // MARK: - Header (score + combo + personal best)
 
     private var header: some View {
@@ -70,8 +93,7 @@ struct GameView: View {
                 Text("\(viewModel.score)")
                     .font(.system(size: 36, weight: .heavy, design: .rounded))
                     .foregroundStyle(.white)
-                    .contentTransition(.numericText(value: Double(viewModel.score)))
-                    .animation(.spring(response: 0.3), value: viewModel.score)
+                    .monospacedDigit()
             }
 
             Spacer()
@@ -83,6 +105,7 @@ struct GameView: View {
                 Text("\(firebase.personalBest)")
                     .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.yellow)
+                    .monospacedDigit()
                 // Fixed height so showing/hiding combo doesn’t resize the header and
                 // relayout the board (that read as an intermittent “zoom”).
                 ZStack(alignment: .trailing) {

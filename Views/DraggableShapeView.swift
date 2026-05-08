@@ -111,7 +111,7 @@ struct DraggableShapeView: View {
     }
 
     private func makeDragGesture() -> some Gesture {
-        DragGesture(coordinateSpace: .global, minimumDistance: 2)
+        DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
                 if !isDragging { isDragging = true }
 

@@ -4,10 +4,9 @@
 //
 //  The 8x8 game board, rendered with `LazyVGrid` per the project brief.
 //
-//  The view exposes its frame via the named coordinate space `Board.coordinateSpace`,
-//  which the draggable pieces read to translate finger positions into grid
-//  indices. Cell size is derived from the available width so the board scales
-//  cleanly across iPhone sizes.
+//  When `gridInnerDimension` is set by `GameView`, the grid stays that exact
+//  square size so tray drags / header tweaks don’t change the proposal and
+//  cause visible “zoom” rescaling.
 //
 
 import SwiftUI
@@ -44,47 +43,63 @@ struct BoardView: View {
 
     @ObservedObject var viewModel: GameViewModel
 
+    /// Pixel width/height of the 8×8 grid **inside** the 8pt chrome padding.
+    /// `nil` → fall back to flexible `GeometryReader` + aspect ratio (previews only).
+    var gridInnerDimension: CGFloat? = nil
+
     /// The columns spec — strict 8 columns of equal width with no spacing.
-    /// The cell size is derived from the rendered frame to stay pixel-perfect.
     private let columns: [GridItem] = Array(
         repeating: GridItem(.flexible(), spacing: Board.gridSpacing),
         count: GameViewModel.boardSize
     )
 
     var body: some View {
-        GeometryReader { geo in
-            // Cell size: total width minus the inter-cell gaps, divided evenly.
-            let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
-            let cellSize = (geo.size.width - totalSpacing) / CGFloat(GameViewModel.boardSize)
-
-            LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
-                ForEach(viewModel.grid.flatMap { $0 }) { cell in
-                    cellView(for: cell, size: cellSize)
+        Group {
+            if let dim = gridInnerDimension, dim > 32 {
+                chromeWrapped(gridContent(side: dim))
+            } else {
+                GeometryReader { geo in
+                    let s = min(geo.size.width, geo.size.height)
+                    gridContent(side: s)
                 }
+                .aspectRatio(1, contentMode: .fit)
+                .modifier(ChromeWrap())
             }
-            .transaction { $0.animation = nil }
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: BoardFramePreferenceKey.self,
-                        value: proxy.frame(in: .global)
-                    )
-                }
-            )
-            .coordinateSpace(name: Board.coordinateSpace)
-            // Square the board: width == height.
-            .frame(width: geo.size.width, height: geo.size.width)
-            // Expose the cell size to the environment so DraggableShapeView
-            // can read it without prop-drilling.
-            .environment(\.boardCellSize, cellSize)
-            .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
         }
-        .aspectRatio(1, contentMode: .fit)
-        .padding(8)
+    }
+
+    private func chromeWrapped(_ grid: some View) -> some View {
+        grid
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(white: 0.12))
+            )
+    }
+
+    @ViewBuilder
+    private func gridContent(side: CGFloat) -> some View {
+        let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
+        let cellSize = (side - totalSpacing) / CGFloat(GameViewModel.boardSize)
+
+        LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
+            ForEach(viewModel.grid.flatMap { $0 }) { cell in
+                cellView(for: cell, size: cellSize)
+            }
+        }
+        .transaction { $0.animation = nil }
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(white: 0.12))
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: BoardFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
         )
+        .coordinateSpace(name: Board.coordinateSpace)
+        .frame(width: side, height: side)
+        .environment(\.boardCellSize, cellSize)
+        .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
     }
 
     // MARK: - Cell rendering
@@ -99,7 +114,6 @@ struct BoardView: View {
                     .stroke(strokeColor(for: cell, preview: preview), lineWidth: 1)
             )
             .frame(width: size, height: size)
-            .animation(.easeOut(duration: 0.15), value: cell.color)
     }
 
     private func isInPreview(_ cell: GridCell) -> Bool {
@@ -109,8 +123,6 @@ struct BoardView: View {
     private func fillColor(for cell: GridCell, preview: Bool) -> Color {
         if let placed = cell.color { return placed }
         if preview, let pColor = viewModel.previewColor { return pColor.opacity(0.45) }
-        // Subtle empty-cell colour with a checker pattern so the player can
-        // count cells visually.
         return ((cell.row + cell.col).isMultiple(of: 2))
             ? Color(white: 0.18)
             : Color(white: 0.22)
@@ -120,6 +132,17 @@ struct BoardView: View {
         if cell.color != nil { return Color.white.opacity(0.18) }
         if preview { return Color.white.opacity(0.5) }
         return Color.white.opacity(0.05)
+    }
+}
+
+private struct ChromeWrap: ViewModifier {
+    func body(content: Content) -> some View {
+        content
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .fill(Color(white: 0.12))
+            )
     }
 }
 
@@ -134,14 +157,11 @@ private struct BoardFrameKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// The current board cell size in points. Read by `DraggableShapeView`
-    /// so the dragged piece is scaled to match the board exactly.
     var boardCellSize: CGFloat {
         get { self[BoardCellSizeKey.self] }
         set { self[BoardCellSizeKey.self] = newValue }
     }
 
-    /// Global rect of the grid — tray converts `.global` drag locations with this.
     var boardFrameInGlobal: CGRect {
         get { self[BoardFrameKey.self] }
         set { self[BoardFrameKey.self] = newValue }
