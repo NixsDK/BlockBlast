@@ -19,14 +19,17 @@ struct PersistenceController {
         let controller = PersistenceController(inMemory: true)
 
         let context = controller.container.viewContext
-        let sample = PersistedScore(context: context)
-        sample.score = 12_340
-        sample.createdAt = Date()
-
-        do {
-            try context.save()
-        } catch {
-            assertionFailure("Preview seed save failed: \(error)")
+        // Seed without the codegen `PersistedScore` class so previews build even
+        // before Xcode generates Core Data subclasses from the `.xcdatamodeld`.
+        if let entity = NSEntityDescription.entity(forEntityName: "PersistedScore", in: context) {
+            let sample = NSManagedObject(entity: entity, insertInto: context)
+            sample.setValue(Int32(12_340), forKey: "score")
+            sample.setValue(Date(), forKey: "createdAt")
+            do {
+                try context.save()
+            } catch {
+                assertionFailure("Preview seed save failed: \(error)")
+            }
         }
 
         return controller
