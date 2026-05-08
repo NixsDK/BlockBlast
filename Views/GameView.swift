@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct GameView: View {
 
@@ -137,20 +138,47 @@ struct GameView: View {
         .padding(.horizontal, 24)
     }
 
-    /// Uses `blockblast.jpg` from the app bundle (`Resources/` — ensure **Copy Bundle Resources**).
+    /// Prefer **`Assets.xcassets` → `BlockBlastLogo`**. Loose JPEGs in Copy Bundle Resources
+    /// often fail `Image("name")`; bundle lookup covers both paths.
     private var gameLogo: some View {
-        Image("blockblast")
-            .resizable()
-            .interpolation(.high)
-            .scaledToFit()
-            .frame(width: 46, height: 46)
-            .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-            .overlay(
+        Group {
+            if let ui = Self.headerLogoUIImage() {
+                Image(uiImage: ui)
+                    .renderingMode(.original)
+                    .resizable()
+                    .interpolation(.high)
+                    .scaledToFit()
+                    .frame(width: 46, height: 46)
+                    .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
+                    )
+                    .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
+                    .accessibilityLabel("BlockBlast logo")
+            } else {
                 RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .strokeBorder(Color.white.opacity(0.12), lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.35), radius: 4, y: 2)
-            .accessibilityLabel("BlockBlast logo")
+                    .strokeBorder(Color.white.opacity(0.25), lineWidth: 1)
+                    .frame(width: 46, height: 46)
+                    .overlay {
+                        Image(systemName: "photo")
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(0.35))
+                    }
+                    .accessibilityLabel("Logo missing from bundle")
+            }
+        }
+    }
+
+    private static func headerLogoUIImage() -> UIImage? {
+        if let img = UIImage(named: "BlockBlastLogo") { return img }
+        if let img = UIImage(named: "blockblast") { return img }
+        if let url = Bundle.main.url(forResource: "blockblast", withExtension: "jpg"),
+           let data = try? Data(contentsOf: url),
+           let img = UIImage(data: data) {
+            return img
+        }
+        return nil
     }
 
     // MARK: - Tray (3 draggable shapes)
