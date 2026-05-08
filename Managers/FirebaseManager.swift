@@ -81,19 +81,15 @@ final class FirebaseManager: ObservableObject {
             return
         }
 
-        let entry = LeaderboardEntry(
-            id: nil,
-            userId: uid,
-            displayName: "Player-\(uid.prefix(4))",
-            score: score,
-            createdAt: Date()
-        )
+        let payload: [String: Any] = [
+            "userId": uid,
+            "displayName": "Player-\(uid.prefix(4))",
+            "score": score,
+            "createdAt": Timestamp(date: Date()),
+        ]
 
         do {
-            // Using addDocument with merge semantics — each personal best is a
-            // new row, allowing players to climb the board over time. Tweak
-            // to a setData(forDocument: uid) if you want one row per user.
-            _ = try db.collection(leaderboardCollection).addDocument(from: entry)
+            _ = try db.collection(leaderboardCollection).addDocument(data: payload)
         } catch {
             print("[FirebaseManager] Failed to write leaderboard entry: \(error)")
         }
@@ -108,11 +104,43 @@ final class FirebaseManager: ObservableObject {
                 .limit(to: limit)
                 .getDocuments()
 
-            self.topEntries = snapshot.documents.compactMap { doc in
-                try? doc.data(as: LeaderboardEntry.self)
-            }
+            self.topEntries = snapshot.documents.compactMap(Self.entry(from:))
         } catch {
             print("[FirebaseManager] Failed to fetch leaderboard: \(error)")
         }
+    }
+
+    /// Manual decode — avoids `FirebaseFirestoreSwift` / `data(as:)`.
+    private static func entry(from doc: QueryDocumentSnapshot) -> LeaderboardEntry? {
+        let data = doc.data()
+        guard let userId = data["userId"] as? String,
+              let displayName = data["displayName"] as? String
+        else { return nil }
+
+        let score: Int
+        if let s = data["score"] as? Int {
+            score = s
+        } else if let s64 = data["score"] as? Int64 {
+            score = Int(s64)
+        } else {
+            return nil
+        }
+
+        let createdAt: Date
+        if let ts = data["createdAt"] as? Timestamp {
+            createdAt = ts.dateValue()
+        } else if let date = data["createdAt"] as? Date {
+            createdAt = date
+        } else {
+            createdAt = Date()
+        }
+
+        return LeaderboardEntry(
+            id: doc.documentID,
+            userId: userId,
+            displayName: displayName,
+            score: score,
+            createdAt: createdAt
+        )
     }
 }
