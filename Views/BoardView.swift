@@ -18,6 +18,15 @@ enum Board {
     static let coordinateSpace = "Board"
 }
 
+/// Bubbles the live board cell size up to `GameView` so tray pieces (siblings
+/// of `BoardView`, not descendants of the grid) receive `@Environment(\.boardCellSize)`.
+struct BoardCellSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 struct BoardView: View {
 
     @ObservedObject var viewModel: GameViewModel
@@ -49,6 +58,7 @@ struct BoardView: View {
             // Expose the cell size to the environment so DraggableShapeView
             // can read it without prop-drilling.
             .environment(\.boardCellSize, cellSize)
+            .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
         }
         .aspectRatio(1, contentMode: .fit)
         .padding(8)

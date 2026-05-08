@@ -17,6 +17,10 @@ struct GameView: View {
     @StateObject private var viewModel = GameViewModel()
     @ObservedObject private var firebase = FirebaseManager.shared
 
+    /// Filled from `BoardView` via `PreferenceKey` so tray `DraggableShapeView`s
+    /// see the same cell size as the grid (they are not inside `BoardView`).
+    @State private var boardCellSize: CGFloat = 0
+
     var body: some View {
         ZStack {
             backgroundGradient
@@ -32,6 +36,8 @@ struct GameView: View {
                 Spacer(minLength: 0)
             }
             .padding(.top, 12)
+            .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
+            .environment(\.boardCellSize, boardCellSize)
 
             // Combo confetti — fires when the player clears 3+ lines at once.
             // The opacity trick lets the same view stay mounted (preserving
