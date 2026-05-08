@@ -2,10 +2,12 @@
 //  BoardView.swift
 //  BlockBlast
 //
-//  The 8x8 game board, rendered with `LazyVGrid` per the project brief.
+//  The 8×8 game board (`LazyVGrid`).
 //
-//  Cell size comes from the laid-out width. Implicit animations on the grid are
-//  disabled to reduce spurious “zoom” pulses during drag/preview updates.
+//  When `pinnedInnerDimension` is set (production UI), the painted grid is
+//  exactly that square — layout does **not** depend on `.aspectRatio` sizing,
+//  which otherwise tracks tiny fluctuations in the VStack’s vertical proposal
+//  (“zoom”).
 //
 
 import SwiftUI
@@ -18,6 +20,9 @@ enum Board {
     /// Must stay in sync with `LazyVGrid` / `GridItem` spacing below — drag
     /// math in `DraggableShapeView` relies on the same stride.
     static let gridSpacing: CGFloat = 2
+
+    /// Padding applied inside `BoardView` around the grid (`padding(8)`).
+    static let gridChromeInset: CGFloat = 16
 }
 
 /// Bubbles the live board cell size up to `GameView` so tray pieces (siblings
@@ -42,41 +47,59 @@ struct BoardView: View {
 
     @ObservedObject var viewModel: GameViewModel
 
+    /// Inner square dimension for the 8×8 cells. When non-nil, used verbatim (pins zoom).
+    var pinnedInnerDimension: CGFloat? = nil
+
     private let columns: [GridItem] = Array(
         repeating: GridItem(.flexible(), spacing: Board.gridSpacing),
         count: GameViewModel.boardSize
     )
 
     var body: some View {
-        GeometryReader { geo in
-            let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
-            let cellSize = (geo.size.width - totalSpacing) / CGFloat(GameViewModel.boardSize)
-
-            LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
-                ForEach(viewModel.grid.flatMap { $0 }) { cell in
-                    cellView(for: cell, size: cellSize)
+        Group {
+            if let inner = pinnedInnerDimension, inner > 32 {
+                gridStack(side: inner)
+                    .padding(8)
+                    .background(boardChromeBackground)
+            } else {
+                GeometryReader { geo in
+                    let s = min(geo.size.width, geo.size.height)
+                    gridStack(side: s)
                 }
+                .aspectRatio(1, contentMode: .fit)
+                .padding(8)
+                .background(boardChromeBackground)
             }
-            .transaction { $0.animation = nil }
-            .background(
-                GeometryReader { proxy in
-                    Color.clear.preference(
-                        key: BoardFramePreferenceKey.self,
-                        value: proxy.frame(in: .global)
-                    )
-                }
-            )
-            .coordinateSpace(name: Board.coordinateSpace)
-            .frame(width: geo.size.width, height: geo.size.width)
-            .environment(\.boardCellSize, cellSize)
-            .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
         }
-        .aspectRatio(1, contentMode: .fit)
-        .padding(8)
+    }
+
+    private var boardChromeBackground: some View {
+        RoundedRectangle(cornerRadius: 16, style: .continuous)
+            .fill(Color(white: 0.12))
+    }
+
+    private func gridStack(side: CGFloat) -> some View {
+        let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
+        let cellSize = (side - totalSpacing) / CGFloat(GameViewModel.boardSize)
+
+        return LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
+            ForEach(viewModel.grid.flatMap { $0 }) { cell in
+                cellView(for: cell, size: cellSize)
+            }
+        }
+        .transaction { $0.animation = nil }
         .background(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .fill(Color(white: 0.12))
+            GeometryReader { proxy in
+                Color.clear.preference(
+                    key: BoardFramePreferenceKey.self,
+                    value: proxy.frame(in: .global)
+                )
+            }
         )
+        .coordinateSpace(name: Board.coordinateSpace)
+        .frame(width: side, height: side)
+        .environment(\.boardCellSize, cellSize)
+        .preference(key: BoardCellSizePreferenceKey.self, value: cellSize)
     }
 
     @ViewBuilder
