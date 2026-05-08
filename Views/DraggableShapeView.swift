@@ -2,11 +2,12 @@
 //  DraggableShapeView.swift
 //  BlockBlast
 //
-//  Tray piece + drag gesture. Placement math uses:
-//  • `DragGesture(coordinateSpace: .global)` — the tray is **not** under the
-//    grid’s `.coordinateSpace`, so named-board-space drags are unreliable.
-//  • `boardFrameInGlobal` — subtract from `location` to get grid-local points.
-//  • Stride `cellSize + Board.gridSpacing` to match `LazyVGrid`.
+//  Tray piece + drag gesture.
+//  • `DragGesture(.global)` + `boardFrameInGlobal` → grid-local points (tray is
+//    not under the grid’s coordinate space).
+//  • **Cell size** is derived from the grid’s **on-screen width** so stride math
+//    matches what `LazyVGrid` actually painted (preference alone can lag or
+//    disagree after layout).
 //
 
 import SwiftUI
@@ -18,34 +19,39 @@ struct DraggableShapeView: View {
 
     @ObservedObject var viewModel: GameViewModel
 
-    @Environment(\.boardCellSize) private var boardCellSize: CGFloat
+    @Environment(\.boardCellSize) private var boardCellSizeFromPreference: CGFloat
     @Environment(\.boardFrameInGlobal) private var boardFrameInGlobal: CGRect
 
-    private var trayCellSize: CGFloat { max(boardCellSize * 0.7, 18) }
-
-    /// Uses real cell size when known; otherwise tray size so lift isn’t 0.
-    private var fingerLiftBase: CGFloat {
-        boardCellSize > 0 ? boardCellSize : trayCellSize
+    /// Matches BoardView: `(gridWidth − (n−1)·g) / n`.
+    private var placementCellSize: CGFloat {
+        let g = Board.gridSpacing
+        let n = CGFloat(GameViewModel.boardSize)
+        let gapSpan = CGFloat(GameViewModel.boardSize - 1) * g
+        let w = boardFrameInGlobal.width
+        let fromFrame = (w > gapSpan + 1) ? (w - gapSpan) / n : 0
+        let merged = max(fromFrame, boardCellSizeFromPreference)
+        if merged > 1 { return merged }
+        return max(28, boardCellSizeFromPreference)
     }
 
-    private var fingerLiftOffset: CGFloat { fingerLiftBase * 1.5 }
-
-    /// Avoid a 0×0 drag preview before `boardCellSize` preference arrives.
-    private var renderCellSizeWhileDragging: CGFloat {
-        boardCellSize > 0 ? boardCellSize : trayCellSize
+    private var trayCellSize: CGFloat {
+        max(placementCellSize * 0.74, 18)
     }
+
+    private var fingerLiftOffset: CGFloat { placementCellSize * 1.5 }
+
+    /// Subtle lift while dragging (cell size already matches the grid).
+    private let dragVisualScale: CGFloat = 1.03
 
     @State private var dragTranslation: CGSize = .zero
     @State private var isDragging: Bool = false
 
     var body: some View {
-        let activeCellSize = isDragging ? renderCellSizeWhileDragging : trayCellSize
-
-        shapeBody(cellSize: activeCellSize)
-            .opacity(isDragging ? 0.95 : 1.0)
+        shapeBody(cellSize: isDragging ? placementCellSize : trayCellSize)
+            .scaleEffect(isDragging ? dragVisualScale : 0.95)
+            .opacity(isDragging ? 0.98 : 1.0)
             .offset(dragTranslation)
-            .scaleEffect(isDragging ? 1.0 : 0.95)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isDragging)
+            .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDragging)
             .gesture(makeDragGesture())
     }
 
@@ -107,7 +113,6 @@ struct DraggableShapeView: View {
             }
     }
 
-    /// Converts global finger position to coordinates inside the LazyVGrid rect.
     private func boardLocalPoint(fromGlobal globalPoint: CGPoint) -> CGPoint? {
         let frame = boardFrameInGlobal
         guard frame.width > 1, frame.height > 1 else { return nil }
@@ -119,13 +124,14 @@ struct DraggableShapeView: View {
     }
 
     private func anchorCell(for point: CGPoint) -> (row: Int, col: Int)? {
-        guard boardCellSize > 0 else { return nil }
+        let cell = placementCellSize
+        guard cell > 0 else { return nil }
 
         let g = Board.gridSpacing
-        let stride = boardCellSize + g
+        let stride = cell + g
 
-        let shapeW = CGFloat(shape.cols) * boardCellSize + CGFloat(max(0, shape.cols - 1)) * g
-        let shapeH = CGFloat(shape.rows) * boardCellSize + CGFloat(max(0, shape.rows - 1)) * g
+        let shapeW = CGFloat(shape.cols) * cell + CGFloat(max(0, shape.cols - 1)) * g
+        let shapeH = CGFloat(shape.rows) * cell + CGFloat(max(0, shape.rows - 1)) * g
 
         let topLeft = CGPoint(x: point.x - shapeW / 2, y: point.y - shapeH / 2)
 
@@ -133,10 +139,10 @@ struct DraggableShapeView: View {
         var row = Int(floor(topLeft.y / stride))
 
         let rx = topLeft.x - CGFloat(col) * stride
-        if rx > boardCellSize, col < GameViewModel.boardSize - 1 { col += 1 }
+        if rx > cell, col < GameViewModel.boardSize - 1 { col += 1 }
 
         let ry = topLeft.y - CGFloat(row) * stride
-        if ry > boardCellSize, row < GameViewModel.boardSize - 1 { row += 1 }
+        if ry > cell, row < GameViewModel.boardSize - 1 { row += 1 }
 
         row = min(max(row, 0), GameViewModel.boardSize - shape.rows)
         col = min(max(col, 0), GameViewModel.boardSize - shape.cols)
