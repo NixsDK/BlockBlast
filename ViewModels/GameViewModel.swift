@@ -86,6 +86,12 @@ final class GameViewModel: ObservableObject {
         refillTrayIfNeeded()
     }
 
+    /// Signature for the whole tray — drives `.id` on the tray so SwiftUI drops
+    /// stale drag `@State` whenever slots change (fixes “frozen” pieces over the grid).
+    var trayContentsSignature: String {
+        tray.map { $0?.id.uuidString ?? "_" }.joined(separator: "|")
+    }
+
     // MARK: - Drag preview
 
     /// Update the ghost preview while the user drags a piece. Pass `nil` if

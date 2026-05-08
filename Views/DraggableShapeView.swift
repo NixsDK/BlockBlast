@@ -22,16 +22,35 @@ struct DraggableShapeView: View {
     @Environment(\.boardCellSize) private var boardCellSizeFromPreference: CGFloat
     @Environment(\.boardFrameInGlobal) private var boardFrameInGlobal: CGRect
 
-    /// Matches BoardView: `(gridWidth − (n−1)·g) / n`.
+    /// Cell size for drag math + rendering while dragging.
+    ///
+    /// `BoardCellSizePreferenceKey` matches painted cells. `boardFrameInGlobal` can
+    /// briefly disagree during layout (or report a bad width), which previously
+    /// inflated `max(frame, pref)` and drew enormous “ghost” pieces over the grid.
+    /// Prefer the preference whenever it looks sane; only blend in frame when it agrees.
     private var placementCellSize: CGFloat {
+        let pref = boardCellSizeFromPreference
+        let fromFrame = cellSizeFromReportedGridWidth(boardFrameInGlobal.width)
+
+        if pref > 4 {
+            if fromFrame > 4 {
+                let ratio = fromFrame / pref
+                if ratio >= 0.78 && ratio <= 1.22 {
+                    return max(pref, fromFrame)
+                }
+            }
+            return pref
+        }
+
+        if fromFrame > 4 { return fromFrame }
+        return max(28, pref)
+    }
+
+    private func cellSizeFromReportedGridWidth(_ w: CGFloat) -> CGFloat {
         let g = Board.gridSpacing
-        let n = CGFloat(GameViewModel.boardSize)
         let gapSpan = CGFloat(GameViewModel.boardSize - 1) * g
-        let w = boardFrameInGlobal.width
-        let fromFrame = (w > gapSpan + 1) ? (w - gapSpan) / n : 0
-        let merged = max(fromFrame, boardCellSizeFromPreference)
-        if merged > 1 { return merged }
-        return max(28, boardCellSizeFromPreference)
+        guard w > gapSpan + 1 else { return 0 }
+        return (w - gapSpan) / CGFloat(GameViewModel.boardSize)
     }
 
     private var trayCellSize: CGFloat {
@@ -40,8 +59,8 @@ struct DraggableShapeView: View {
 
     private var fingerLiftOffset: CGFloat { placementCellSize * 1.5 }
 
-    /// Subtle lift while dragging (cell size already matches the grid).
-    private let dragVisualScale: CGFloat = 1.03
+    /// Match grid scale exactly while dragging (extra scale looked like “zoom”).
+    private let dragVisualScale: CGFloat = 1.0
 
     @State private var dragTranslation: CGSize = .zero
     @State private var isDragging: Bool = false
@@ -59,6 +78,12 @@ struct DraggableShapeView: View {
                 isDragging = false
             }
             .disabled(viewModel.isGameOver)
+            .onDisappear {
+                // Gesture can cancel without `onEnded`; don’t leave preview/offset stuck.
+                if isDragging { viewModel.clearPreview() }
+                dragTranslation = .zero
+                isDragging = false
+            }
     }
 
     @ViewBuilder
@@ -86,7 +111,7 @@ struct DraggableShapeView: View {
     }
 
     private func makeDragGesture() -> some Gesture {
-        DragGesture(coordinateSpace: .global)
+        DragGesture(coordinateSpace: .global, minimumDistance: 2)
             .onChanged { value in
                 if !isDragging { isDragging = true }
 

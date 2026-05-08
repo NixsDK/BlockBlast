@@ -62,6 +62,7 @@ struct BoardView: View {
                     cellView(for: cell, size: cellSize)
                 }
             }
+            .transaction { $0.animation = nil }
             .background(
                 GeometryReader { proxy in
                     Color.clear.preference(

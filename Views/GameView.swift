@@ -34,6 +34,7 @@ struct GameView: View {
                 BoardView(viewModel: viewModel)
                     .padding(.horizontal, 16)
                 trayView
+                    .id(viewModel.trayContentsSignature)
                     .frame(height: 130)
                     .padding(.horizontal, 16)
                 Spacer(minLength: 0)
