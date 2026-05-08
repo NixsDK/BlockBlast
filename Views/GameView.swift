@@ -21,6 +21,9 @@ struct GameView: View {
     /// see the same cell size as the grid (they are not inside `BoardView`).
     @State private var boardCellSize: CGFloat = 0
 
+    /// Grid frame in window/global coords — paired with `.global` `DragGesture`.
+    @State private var boardFrameInGlobal: CGRect = .zero
+
     var body: some View {
         ZStack {
             backgroundGradient
@@ -37,7 +40,9 @@ struct GameView: View {
             }
             .padding(.top, 12)
             .onPreferenceChange(BoardCellSizePreferenceKey.self) { boardCellSize = $0 }
+            .onPreferenceChange(BoardFramePreferenceKey.self) { boardFrameInGlobal = $0 }
             .environment(\.boardCellSize, boardCellSize)
+            .environment(\.boardFrameInGlobal, boardFrameInGlobal)
 
             // Combo confetti — fires when the player clears 3+ lines at once.
             // The opacity trick lets the same view stay mounted (preserving

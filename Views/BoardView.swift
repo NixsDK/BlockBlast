@@ -31,6 +31,15 @@ struct BoardCellSizePreferenceKey: PreferenceKey {
     }
 }
 
+/// `LazyVGrid` bounds in global coordinates — tray drags convert `.global` → grid.
+struct BoardFramePreferenceKey: PreferenceKey {
+    static var defaultValue: CGRect = .zero
+    static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        let n = nextValue()
+        if n.width > 0, n.height > 0 { value = n }
+    }
+}
+
 struct BoardView: View {
 
     @ObservedObject var viewModel: GameViewModel
@@ -53,9 +62,14 @@ struct BoardView: View {
                     cellView(for: cell, size: cellSize)
                 }
             }
-            // The named coordinate space lets DragGesture report locations
-            // relative to the board's origin — much simpler math than going
-            // through .global and then doing the conversion ourselves.
+            .background(
+                GeometryReader { proxy in
+                    Color.clear.preference(
+                        key: BoardFramePreferenceKey.self,
+                        value: proxy.frame(in: .global)
+                    )
+                }
+            )
             .coordinateSpace(name: Board.coordinateSpace)
             // Square the board: width == height.
             .frame(width: geo.size.width, height: geo.size.width)
@@ -108,10 +122,14 @@ struct BoardView: View {
     }
 }
 
-// MARK: - Environment plumbing for cell size
+// MARK: - Environment plumbing for drag / layout
 
 private struct BoardCellSizeKey: EnvironmentKey {
     static let defaultValue: CGFloat = 0
+}
+
+private struct BoardFrameKey: EnvironmentKey {
+    static var defaultValue: CGRect = .zero
 }
 
 extension EnvironmentValues {
@@ -120,5 +138,11 @@ extension EnvironmentValues {
     var boardCellSize: CGFloat {
         get { self[BoardCellSizeKey.self] }
         set { self[BoardCellSizeKey.self] = newValue }
+    }
+
+    /// Global rect of the grid — tray converts `.global` drag locations with this.
+    var boardFrameInGlobal: CGRect {
+        get { self[BoardFrameKey.self] }
+        set { self[BoardFrameKey.self] = newValue }
     }
 }

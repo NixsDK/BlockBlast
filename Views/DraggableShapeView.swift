@@ -2,20 +2,11 @@
 //  DraggableShapeView.swift
 //  BlockBlast
 //
-//  Visual representation of a single tray piece. Owns the DragGesture that
-//  lets the user pick up the piece and drop it onto the board.
-//
-//  How the coordinate math works:
-//   • While idle the piece renders at "tray scale" (smaller than a board cell)
-//     so all three pieces fit comfortably below the grid.
-//   • On drag start we scale the piece up to the board cell size so the
-//     preview matches what would be placed.
-//   • The DragGesture reports its `location` in two coordinate spaces:
-//       1. `Board.coordinateSpace`   – used to compute (row, col)
-//       2. `.global`                 – used to translate the floating preview
-//          to follow the finger.
-//   • An additional vertical "lift" offset displays the piece above the
-//     finger so the player can actually see what they're placing.
+//  Tray piece + drag gesture. Placement math uses:
+//  • `DragGesture(coordinateSpace: .global)` — the tray is **not** under the
+//    grid’s `.coordinateSpace`, so named-board-space drags are unreliable.
+//  • `boardFrameInGlobal` — subtract from `location` to get grid-local points.
+//  • Stride `cellSize + Board.gridSpacing` to match `LazyVGrid`.
 //
 
 import SwiftUI
@@ -25,38 +16,38 @@ struct DraggableShapeView: View {
     let trayIndex: Int
     let shape: BlockShape
 
-    /// View-model is observed so that when the piece is consumed and
-    /// the parent removes us from the layout, the binding is clean.
     @ObservedObject var viewModel: GameViewModel
 
-    /// Cell size on the board, supplied via Environment by `BoardView`.
     @Environment(\.boardCellSize) private var boardCellSize: CGFloat
+    @Environment(\.boardFrameInGlobal) private var boardFrameInGlobal: CGRect
 
-    /// Tray cell size — purely cosmetic; ~70% of board size feels right.
     private var trayCellSize: CGFloat { max(boardCellSize * 0.7, 18) }
 
-    /// Lift the piece above the finger by ~1.5 cells so the user can see the
-    /// preview cells under it. Tuned by feel, mirrors the iOS Block Blast UX.
-    private var fingerLiftOffset: CGFloat { boardCellSize * 1.5 }
+    /// Uses real cell size when known; otherwise tray size so lift isn’t 0.
+    private var fingerLiftBase: CGFloat {
+        boardCellSize > 0 ? boardCellSize : trayCellSize
+    }
 
-    /// Drag state.
+    private var fingerLiftOffset: CGFloat { fingerLiftBase * 1.5 }
+
+    /// Avoid a 0×0 drag preview before `boardCellSize` preference arrives.
+    private var renderCellSizeWhileDragging: CGFloat {
+        boardCellSize > 0 ? boardCellSize : trayCellSize
+    }
+
     @State private var dragTranslation: CGSize = .zero
-    @State private var dragLocationInBoard: CGPoint? = nil
     @State private var isDragging: Bool = false
 
     var body: some View {
-        let activeCellSize = isDragging ? boardCellSize : trayCellSize
+        let activeCellSize = isDragging ? renderCellSizeWhileDragging : trayCellSize
 
         shapeBody(cellSize: activeCellSize)
             .opacity(isDragging ? 0.95 : 1.0)
             .offset(dragTranslation)
-            // Slight bounce when the player picks the piece up.
             .scaleEffect(isDragging ? 1.0 : 0.95)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: isDragging)
             .gesture(makeDragGesture())
     }
-
-    // MARK: - Visual
 
     @ViewBuilder
     private func shapeBody(cellSize: CGFloat) -> some View {
@@ -74,8 +65,6 @@ struct DraggableShapeView: View {
                                 .frame(width: cellSize, height: cellSize)
                                 .shadow(color: shape.color.opacity(0.4), radius: 2, y: 1)
                         } else {
-                            // Transparent spacer keeps the matrix layout
-                            // square even with non-rectangular shapes.
                             Color.clear.frame(width: cellSize, height: cellSize)
                         }
                     }
@@ -84,65 +73,60 @@ struct DraggableShapeView: View {
         }
     }
 
-    // MARK: - Drag
-
     private func makeDragGesture() -> some Gesture {
-        DragGesture(coordinateSpace: .named(Board.coordinateSpace))
+        DragGesture(coordinateSpace: .global)
             .onChanged { value in
                 if !isDragging { isDragging = true }
 
-                // 1. Move the floating preview with the finger. We use
-                //    `translation` so the piece tracks 1:1 with the gesture
-                //    regardless of tray placement.
                 dragTranslation = CGSize(
                     width: value.translation.width,
                     height: value.translation.height - fingerLiftOffset
                 )
 
-                // 2. Compute the cell under the (lifted) anchor and ask the
-                //    view-model to highlight a preview if valid.
-                let pointInBoard = CGPoint(
-                    x: value.location.x,
-                    y: value.location.y - fingerLiftOffset
-                )
-                dragLocationInBoard = pointInBoard
-                updatePreview(for: pointInBoard)
+                guard let local = boardLocalPoint(fromGlobal: value.location) else {
+                    viewModel.clearPreview()
+                    return
+                }
+                updatePreview(for: local)
             }
             .onEnded { value in
-                let pointInBoard = CGPoint(
-                    x: value.location.x,
-                    y: value.location.y - fingerLiftOffset
-                )
-                let placed = attemptPlacement(at: pointInBoard)
+                let placed: Bool
+                if let local = boardLocalPoint(fromGlobal: value.location) {
+                    placed = attemptPlacement(at: local)
+                } else {
+                    placed = false
+                }
 
                 if !placed {
-                    // Snap back to the tray with a little bounce.
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         dragTranslation = .zero
                     }
                 }
                 isDragging = false
-                dragLocationInBoard = nil
                 viewModel.clearPreview()
             }
     }
 
-    // MARK: - Coordinate math
+    /// Converts global finger position to coordinates inside the LazyVGrid rect.
+    private func boardLocalPoint(fromGlobal globalPoint: CGPoint) -> CGPoint? {
+        let frame = boardFrameInGlobal
+        guard frame.width > 1, frame.height > 1 else { return nil }
 
-    /// Converts a board-space point to the `(row, col)` of the shape's
-    /// top-left anchor. The anchor is offset by half the shape's bounding
-    /// box so the piece feels centred on the finger.
+        return CGPoint(
+            x: globalPoint.x - frame.minX,
+            y: globalPoint.y - frame.minY - fingerLiftOffset
+        )
+    }
+
     private func anchorCell(for point: CGPoint) -> (row: Int, col: Int)? {
         guard boardCellSize > 0 else { return nil }
 
         let g = Board.gridSpacing
         let stride = boardCellSize + g
 
-        // Pixel size of the piece preview including the same gaps as `LazyVGrid`.
         let shapeW = CGFloat(shape.cols) * boardCellSize + CGFloat(max(0, shape.cols - 1)) * g
         let shapeH = CGFloat(shape.rows) * boardCellSize + CGFloat(max(0, shape.rows - 1)) * g
 
-        // Centre the shape under the finger, then map matrix origin [0,0] to grid indices.
         let topLeft = CGPoint(x: point.x - shapeW / 2, y: point.y - shapeH / 2)
 
         var col = Int(floor(topLeft.x / stride))
@@ -168,8 +152,6 @@ struct DraggableShapeView: View {
         viewModel.setPreview(shape: shape, originRow: anchor.row, originCol: anchor.col)
     }
 
-    /// Attempts to commit placement at the current drag location. Returns
-    /// true if the placement succeeded (so the view doesn't snap back).
     private func attemptPlacement(at point: CGPoint) -> Bool {
         guard let anchor = anchorCell(for: point) else { return false }
         return viewModel.place(trayIndex: trayIndex, atRow: anchor.row, col: anchor.col)
