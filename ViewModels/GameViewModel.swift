@@ -255,7 +255,16 @@ final class GameViewModel: ObservableObject {
 
     // MARK: - Game-over evaluation
 
+    /// Call after any drag ends (and after `place`). Without this, a full tray
+    /// where **none** of the three shapes fits anywhere never triggers game over
+    /// because the player never completes a successful placement.
+    func checkForGameOverAfterPlayerInteraction() {
+        evaluateGameOver()
+    }
+
     private func evaluateGameOver() {
+        guard !isGameOver else { return }
+
         let remaining = tray.compactMap { $0 }
         // The tray refill above guarantees `remaining` is non-empty unless
         // the player has cleared everything (in which case we keep playing).
@@ -263,6 +272,7 @@ final class GameViewModel: ObservableObject {
 
         let anyFits = remaining.contains(where: { canPlaceAnywhere($0) })
         if !anyFits {
+            clearPreview()
             isGameOver = true
             gameOverBurstToken &+= 1
             newPersonalBestThisGame = firebase.submitScoreIfPersonalBest(score)

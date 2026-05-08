@@ -53,6 +53,11 @@ struct DraggableShapeView: View {
             .offset(dragTranslation)
             .animation(.spring(response: 0.25, dampingFraction: 0.82), value: isDragging)
             .gesture(makeDragGesture())
+            .onChange(of: shape.id) { _ in
+                dragTranslation = .zero
+                isDragging = false
+            }
+            .disabled(viewModel.isGameOver)
     }
 
     @ViewBuilder
@@ -103,13 +108,19 @@ struct DraggableShapeView: View {
                     placed = false
                 }
 
-                if !placed {
+                // Always reset offset — on successful placement SwiftUI may reuse this
+                // view for the next piece at the same tray index; leaving a non-zero
+                // translation makes the new piece appear “floating” over the grid.
+                if placed {
+                    dragTranslation = .zero
+                } else {
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                         dragTranslation = .zero
                     }
                 }
                 isDragging = false
                 viewModel.clearPreview()
+                viewModel.checkForGameOverAfterPlayerInteraction()
             }
     }
 

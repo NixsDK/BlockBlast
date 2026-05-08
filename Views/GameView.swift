@@ -109,6 +109,8 @@ struct GameView: View {
                             shape: shape,
                             viewModel: viewModel
                         )
+                        // Fresh drag state per spawned piece; avoids reused @State when the tray refills.
+                        .id(shape.id)
                     }
                 }
                 .frame(maxWidth: .infinity)
