@@ -18,9 +18,12 @@ struct BlockBlastApp: App {
     // way to bootstrap Firebase on iOS.
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    private let persistence = PersistenceController.shared
+
     var body: some Scene {
         WindowGroup {
-            GameView()
+            ContentView()
+                .environment(\.managedObjectContext, persistence.container.viewContext)
                 // Anonymous sign-in is kicked off as soon as the root view is
                 // installed. The call is idempotent — FirebaseManager will
                 // short-circuit if the user is already authenticated.
