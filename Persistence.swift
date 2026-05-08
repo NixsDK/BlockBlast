@@ -19,8 +19,7 @@ struct PersistenceController {
         let controller = PersistenceController(inMemory: true)
 
         let context = controller.container.viewContext
-        // Seed without the codegen `PersistedScore` class so previews build even
-        // before Xcode generates Core Data subclasses from the `.xcdatamodeld`.
+        // Seed using generic `NSManagedObject` — entity uses manual Core Data codegen (no generated subclass).
         if let entity = NSEntityDescription.entity(forEntityName: "PersistedScore", in: context) {
             let sample = NSManagedObject(entity: entity, insertInto: context)
             sample.setValue(Int32(12_340), forKey: "score")
