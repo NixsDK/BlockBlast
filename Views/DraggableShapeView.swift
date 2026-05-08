@@ -60,9 +60,9 @@ struct DraggableShapeView: View {
 
     @ViewBuilder
     private func shapeBody(cellSize: CGFloat) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: Board.gridSpacing) {
             ForEach(0..<shape.rows, id: \.self) { r in
-                HStack(spacing: 2) {
+                HStack(spacing: Board.gridSpacing) {
                     ForEach(0..<shape.cols, id: \.self) { c in
                         if shape.matrix[r][c] {
                             RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -135,22 +135,28 @@ struct DraggableShapeView: View {
     private func anchorCell(for point: CGPoint) -> (row: Int, col: Int)? {
         guard boardCellSize > 0 else { return nil }
 
-        // Adjust the point so it represents the *top-left* cell of the shape
-        // rather than the centre. This matches the visual placement and
-        // makes the preview line up exactly with the dropped piece.
-        let halfWidth  = CGFloat(shape.cols) * boardCellSize / 2
-        let halfHeight = CGFloat(shape.rows) * boardCellSize / 2
+        let g = Board.gridSpacing
+        let stride = boardCellSize + g
 
-        let adjusted = CGPoint(
-            x: point.x - halfWidth + boardCellSize / 2,
-            y: point.y - halfHeight + boardCellSize / 2
-        )
+        // Pixel size of the piece preview including the same gaps as `LazyVGrid`.
+        let shapeW = CGFloat(shape.cols) * boardCellSize + CGFloat(max(0, shape.cols - 1)) * g
+        let shapeH = CGFloat(shape.rows) * boardCellSize + CGFloat(max(0, shape.rows - 1)) * g
 
-        // 2pt of inter-cell padding is part of the LazyVGrid; we treat each
-        // (cell + spacing) as one stride. Using the cell size alone is close
-        // enough at our resolutions and avoids fiddly corner cases.
-        let row = Int(floor(adjusted.y / boardCellSize))
-        let col = Int(floor(adjusted.x / boardCellSize))
+        // Centre the shape under the finger, then map matrix origin [0,0] to grid indices.
+        let topLeft = CGPoint(x: point.x - shapeW / 2, y: point.y - shapeH / 2)
+
+        var col = Int(floor(topLeft.x / stride))
+        var row = Int(floor(topLeft.y / stride))
+
+        let rx = topLeft.x - CGFloat(col) * stride
+        if rx > boardCellSize, col < GameViewModel.boardSize - 1 { col += 1 }
+
+        let ry = topLeft.y - CGFloat(row) * stride
+        if ry > boardCellSize, row < GameViewModel.boardSize - 1 { row += 1 }
+
+        row = min(max(row, 0), GameViewModel.boardSize - shape.rows)
+        col = min(max(col, 0), GameViewModel.boardSize - shape.cols)
+
         return (row, col)
     }
 

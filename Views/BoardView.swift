@@ -16,6 +16,10 @@ enum Board {
     /// Named coordinate space used by `DraggableShapeView` to compute
     /// `(row, col)` from a global drag location.
     static let coordinateSpace = "Board"
+
+    /// Must stay in sync with `LazyVGrid` / `GridItem` spacing below — drag
+    /// math in `DraggableShapeView` relies on the same stride.
+    static let gridSpacing: CGFloat = 2
 }
 
 /// Bubbles the live board cell size up to `GameView` so tray pieces (siblings
@@ -34,17 +38,17 @@ struct BoardView: View {
     /// The columns spec — strict 8 columns of equal width with no spacing.
     /// The cell size is derived from the rendered frame to stay pixel-perfect.
     private let columns: [GridItem] = Array(
-        repeating: GridItem(.flexible(), spacing: 2),
+        repeating: GridItem(.flexible(), spacing: Board.gridSpacing),
         count: GameViewModel.boardSize
     )
 
     var body: some View {
         GeometryReader { geo in
             // Cell size: total width minus the inter-cell gaps, divided evenly.
-            let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * 2
+            let totalSpacing = CGFloat(GameViewModel.boardSize - 1) * Board.gridSpacing
             let cellSize = (geo.size.width - totalSpacing) / CGFloat(GameViewModel.boardSize)
 
-            LazyVGrid(columns: columns, spacing: 2) {
+            LazyVGrid(columns: columns, spacing: Board.gridSpacing) {
                 ForEach(viewModel.grid.flatMap { $0 }) { cell in
                     cellView(for: cell, size: cellSize)
                 }
