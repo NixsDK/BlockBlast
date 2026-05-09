@@ -88,10 +88,10 @@ final class FirebaseManager: ObservableObject {
             "createdAt": Timestamp(date: Date()),
         ]
 
-        do {
-            _ = try db.collection(leaderboardCollection).addDocument(data: payload)
-        } catch {
-            print("[FirebaseManager] Failed to write leaderboard entry: \(error)")
+        db.collection(leaderboardCollection).addDocument(data: payload) { error in
+            if let error {
+                print("[FirebaseManager] Failed to write leaderboard entry: \(error)")
+            }
         }
     }
 
