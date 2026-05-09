@@ -44,7 +44,7 @@ struct DraggableShapeView: View {
         let cap = maxPlausibleCellSize
 
         let frameWidthTrustworthy =
-            isTrustworthyBoardFrame && frameW > 32 && frameW <= screenW * 1.08
+            boardFrameUsableForDragMath && frameW > 32 && frameW <= screenW * 1.08
 
         let raw: CGFloat
         if pref > 4 && pref <= cap {
@@ -102,8 +102,29 @@ struct DraggableShapeView: View {
         return d <= f.width * 0.15
     }
 
+    /// The grid’s painted side length must match what `BoardCellSizePreferenceKey`
+    /// implies; otherwise we can map a finger **over the tray** into “interior” coords
+    /// on an oversized/wrong global rect → previews and drops jump to the middle.
+    private var boardFrameMatchesPreferenceStride: Bool {
+        guard isTrustworthyBoardFrame else { return false }
+        let pref = boardCellSizeFromPreference
+        guard pref > 4 else { return true }
+        let f = boardFrameInGlobal
+        let n = CGFloat(GameViewModel.boardSize)
+        let g = Board.gridSpacing
+        let expectedSide = n * pref + (n - 1) * g
+        return abs(f.width - expectedSide) <= max(10, expectedSide * 0.075)
+    }
+
+    /// Single gate for converting global drag points into board space.
+    private var boardFrameUsableForDragMath: Bool {
+        boardFrameMatchesPreferenceStride
+    }
+
     @State private var dragTranslation: CGSize = .zero
     @State private var isDragging: Bool = false
+    /// `DragGesture.Value.location` in `onEnded` can be wrong/intermittent; last `onChanged` is safer.
+    @State private var lastDragGlobalLocation: CGPoint?
 
     var body: some View {
         shapeBody(cellSize: trayCellSize)
@@ -115,13 +136,16 @@ struct DraggableShapeView: View {
             .gesture(makeDragGesture())
             .modifier(TrayPieceIdentityObserver(pieceID: shape.id, reset: {
                 viewModel.clearPreview()
+                lastDragGlobalLocation = nil
                 dragTranslation = .zero
                 isDragging = false
             }))
             .disabled(viewModel.isGameOver)
             .onDisappear {
-                // Gesture can cancel without `onEnded`; don’t leave preview/offset stuck.
-                if isDragging { viewModel.clearPreview() }
+                // Always clear preview: gesture can end without `onEnded`, and `isDragging`
+                // may already be false while `previewCells` still reflects this piece.
+                viewModel.clearPreview()
+                lastDragGlobalLocation = nil
                 dragTranslation = .zero
                 isDragging = false
             }
@@ -156,6 +180,8 @@ struct DraggableShapeView: View {
             .onChanged { value in
                 if !isDragging { isDragging = true }
 
+                lastDragGlobalLocation = value.location
+
                 dragTranslation = CGSize(
                     width: value.translation.width,
                     height: value.translation.height - fingerLiftOffset
@@ -168,8 +194,11 @@ struct DraggableShapeView: View {
                 updatePreview(for: local)
             }
             .onEnded { value in
+                let endGlobal = lastDragGlobalLocation ?? value.location
+                lastDragGlobalLocation = nil
+
                 let placed: Bool
-                if let local = boardLocalPoint(fromGlobal: value.location) {
+                if let local = boardLocalPoint(fromGlobal: endGlobal) {
                     placed = attemptPlacement(at: local)
                 } else {
                     placed = false
@@ -192,7 +221,7 @@ struct DraggableShapeView: View {
     }
 
     private func boardLocalPoint(fromGlobal globalPoint: CGPoint) -> CGPoint? {
-        guard isTrustworthyBoardFrame else { return nil }
+        guard boardFrameUsableForDragMath else { return nil }
         let frame = boardFrameInGlobal
 
         return CGPoint(
