@@ -37,8 +37,10 @@ struct GameView: View {
                         .frame(height: Self.lockedHeaderHeight, alignment: .center)
                     BoardView(viewModel: viewModel, pinnedInnerDimension: boardInner)
                         .padding(.horizontal, 16)
+                    // Only `DraggableShapeView.id(shape.id)` should reset piece state.
+                    // Remounting the whole tray on every partial tray change cancelled drags and
+                    // could leave `isDragging` + scale/offset stuck (giant tile on the board).
                     trayView
-                        .id(viewModel.trayContentsSignature)
                         .frame(height: Self.trayStripHeight)
                         .padding(.horizontal, 16)
                     Spacer(minLength: 0)
