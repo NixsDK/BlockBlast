@@ -11,6 +11,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 struct DraggableShapeView: View {
 
@@ -22,6 +23,13 @@ struct DraggableShapeView: View {
     @Environment(\.boardCellSize) private var boardCellSizeFromPreference: CGFloat
     @Environment(\.boardFrameInGlobal) private var boardFrameInGlobal: CGRect
 
+    /// Hard ceiling so a bogus preference / global frame can’t blow a tray piece up to full-screen.
+    private var maxPlausibleCellSize: CGFloat {
+        let w = UIScreen.main.bounds.width
+        let perCell = (w - 40) / CGFloat(GameViewModel.boardSize)
+        return min(110, max(36, perCell + 18))
+    }
+
     /// Cell size for drag math + rendering while dragging.
     ///
     /// `BoardCellSizePreferenceKey` matches painted cells. `boardFrameInGlobal` can
@@ -30,20 +38,34 @@ struct DraggableShapeView: View {
     /// Prefer the preference whenever it looks sane; only blend in frame when it agrees.
     private var placementCellSize: CGFloat {
         let pref = boardCellSizeFromPreference
-        let fromFrame = cellSizeFromReportedGridWidth(boardFrameInGlobal.width)
+        let frameW = boardFrameInGlobal.width
+        let fromFrame = cellSizeFromReportedGridWidth(frameW)
+        let screenW = UIScreen.main.bounds.width
+        let cap = maxPlausibleCellSize
 
-        if pref > 4 {
-            if fromFrame > 4 {
+        let frameWidthTrustworthy = frameW > 32 && frameW <= screenW * 1.08
+
+        let raw: CGFloat
+        if pref > 4 && pref <= cap {
+            if fromFrame > 4, frameWidthTrustworthy {
                 let ratio = fromFrame / pref
                 if ratio >= 0.78 && ratio <= 1.22 {
-                    return max(pref, fromFrame)
+                    raw = max(pref, fromFrame)
+                } else {
+                    raw = pref
                 }
+            } else {
+                raw = pref
             }
-            return pref
+        } else if fromFrame > 4, frameWidthTrustworthy, fromFrame <= cap {
+            raw = fromFrame
+        } else if pref > 4 {
+            raw = min(pref, cap)
+        } else {
+            raw = min(max(28, pref), cap)
         }
 
-        if fromFrame > 4 { return fromFrame }
-        return max(28, pref)
+        return min(max(raw, 18), cap)
     }
 
     private func cellSizeFromReportedGridWidth(_ w: CGFloat) -> CGFloat {
