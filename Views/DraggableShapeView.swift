@@ -43,7 +43,8 @@ struct DraggableShapeView: View {
         let screenW = UIScreen.main.bounds.width
         let cap = maxPlausibleCellSize
 
-        let frameWidthTrustworthy = frameW > 32 && frameW <= screenW * 1.08
+        let frameWidthTrustworthy =
+            isTrustworthyBoardFrame && frameW > 32 && frameW <= screenW * 1.08
 
         let raw: CGFloat
         if pref > 4 && pref <= cap {
@@ -79,23 +80,41 @@ struct DraggableShapeView: View {
         max(placementCellSize * 0.74, 18)
     }
 
+    /// Scale applied so the piece **looks** grid-sized while dragging without
+    /// swapping `shapeBody` to a huge intrinsic layout (that inflated the tray,
+    /// painted outside the strip, and read as random blocks above the board).
+    private var trayToPlacementVisualScale: CGFloat {
+        let t = trayCellSize
+        guard t > 1 else { return 1 }
+        return placementCellSize / t
+    }
+
     private var fingerLiftOffset: CGFloat { placementCellSize * 1.5 }
 
-    /// Match grid scale exactly while dragging (extra scale looked like “zoom”).
-    private let dragVisualScale: CGFloat = 1.0
+    /// Rejects stale or bogus rects (window-sized frames aren’t square; using them
+    /// corrupts cell math and preview placement).
+    private var isTrustworthyBoardFrame: Bool {
+        let f = boardFrameInGlobal
+        guard f.width > 40, f.height > 40 else { return false }
+        let bounds = UIScreen.main.bounds
+        guard f.width <= bounds.width * 1.1, f.height <= bounds.height * 1.1 else { return false }
+        let d = abs(f.width - f.height)
+        return d <= f.width * 0.15
+    }
 
     @State private var dragTranslation: CGSize = .zero
     @State private var isDragging: Bool = false
 
     var body: some View {
-        shapeBody(cellSize: isDragging ? placementCellSize : trayCellSize)
-            .scaleEffect(isDragging ? dragVisualScale : 0.95)
+        shapeBody(cellSize: trayCellSize)
+            .scaleEffect(isDragging ? trayToPlacementVisualScale : 0.95, anchor: .center)
             .opacity(isDragging ? 0.98 : 1.0)
             .offset(dragTranslation)
-            // Don’t animate `isDragging`: it swaps tray vs board cell sizes and can
-            // ripple layout/preference updates so the whole board briefly rescales.
+            // Don’t animate `isDragging`: scaling + offset together stay smooth; animating
+            // the flag tended to hitch when preferences caught up mid-drag.
             .gesture(makeDragGesture())
             .modifier(TrayPieceIdentityObserver(pieceID: shape.id, reset: {
+                viewModel.clearPreview()
                 dragTranslation = .zero
                 isDragging = false
             }))
@@ -173,8 +192,8 @@ struct DraggableShapeView: View {
     }
 
     private func boardLocalPoint(fromGlobal globalPoint: CGPoint) -> CGPoint? {
+        guard isTrustworthyBoardFrame else { return nil }
         let frame = boardFrameInGlobal
-        guard frame.width > 1, frame.height > 1 else { return nil }
 
         return CGPoint(
             x: globalPoint.x - frame.minX,
