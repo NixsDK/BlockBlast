@@ -4,17 +4,21 @@
 //
 //  Second tab: editable player name + last 10 completed games (stored locally).
 //
-//  Keep the player-name `TextField` **outside** `List`: list row recycling +
-//  `@ObservedObject` updates can reset `@State` on the field (classic “only one
-//  letter” / stuck character bugs).
+//  Avoid SwiftUI `TextField` inside recycled containers for the name field.
+//  Also guard against `onAppear` running more than once per tab “session” so a
+//  Firebase `@ObservedObject` refresh cannot keep resetting `nameDraft` (often
+//  reads as “every key becomes A” when `playerDisplayName` was saved as “A”).
 //
 
 import SwiftUI
+import UIKit
 
 struct LeaderboardView: View {
 
     @ObservedObject private var firebase = FirebaseManager.shared
     @State private var nameDraft = ""
+    /// Prevents re-seeding `nameDraft` from Firebase if `onAppear` fires again while this tab stays visible.
+    @State private var didSeedNameDraftForSession = false
 
     var body: some View {
         NavigationStack {
@@ -55,7 +59,12 @@ struct LeaderboardView: View {
             .navigationBarTitleDisplayMode(.large)
             .background(Color(red: 0.06, green: 0.06, blue: 0.09))
             .onAppear {
+                guard !didSeedNameDraftForSession else { return }
+                didSeedNameDraftForSession = true
                 nameDraft = firebase.playerDisplayName
+            }
+            .onDisappear {
+                didSeedNameDraftForSession = false
             }
         }
     }
@@ -65,15 +74,13 @@ struct LeaderboardView: View {
             Text("Profile")
                 .font(.headline)
 
-            TextField("Player name", text: $nameDraft)
-                .textInputAutocapitalization(.words)
-                .autocorrectionDisabled(false)
-                .padding(12)
+            PlayerNameTextField(text: $nameDraft)
+                .frame(height: 44)
+                .padding(.horizontal, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 10, style: .continuous)
                         .fill(Color(white: 0.18))
                 )
-                .foregroundStyle(.primary)
 
             Button("Save name") {
                 firebase.setPlayerDisplayName(nameDraft)
@@ -121,6 +128,62 @@ struct LeaderboardView: View {
 
     private func trimmed(_ s: String) -> String {
         s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+// MARK: - UIKit field (avoids SwiftUI TextField quirks + fights less with ObservableObject redraws)
+
+private struct PlayerNameTextField: UIViewRepresentable {
+
+    @Binding var text: String
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    func makeUIView(context: Context) -> UITextField {
+        let tf = UITextField()
+        tf.placeholder = "Player name"
+        tf.autocorrectionType = .no
+        tf.autocapitalizationType = .words
+        tf.spellCheckingType = .no
+        tf.smartDashesType = .no
+        tf.smartQuotesType = .no
+        tf.smartInsertInlineType = .no
+        tf.textContentType = .nickname
+        tf.returnKeyType = .done
+        tf.delegate = context.coordinator
+        tf.textColor = .white
+        tf.tintColor = .systemYellow
+        tf.font = .preferredFont(forTextStyle: .body)
+        tf.addTarget(context.coordinator, action: #selector(Coordinator.editingChanged(_:)), for: .editingChanged)
+        tf.accessibilityLabel = "Player name"
+        return tf
+    }
+
+    func updateUIView(_ uiView: UITextField, context: Context) {
+        context.coordinator.parent = self
+        guard uiView.text != text else { return }
+        if uiView.isFirstResponder == false {
+            uiView.text = text
+        }
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: PlayerNameTextField
+
+        init(_ parent: PlayerNameTextField) {
+            self.parent = parent
+        }
+
+        @objc func editingChanged(_ sender: UITextField) {
+            parent.text = sender.text ?? ""
+        }
+
+        func textFieldShouldReturn(_ textField: UITextField) -> Bool {
+            textField.resignFirstResponder()
+            return true
+        }
     }
 }
 
