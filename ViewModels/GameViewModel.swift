@@ -279,7 +279,8 @@ final class GameViewModel: ObservableObject {
                 isGameOver = true
             }
             gameOverBurstToken &+= 1
-            newPersonalBestThisGame = firebase.submitScoreIfPersonalBest(score)
+            newPersonalBestThisGame = firebase.updatePersonalBestIfNeeded(score)
+            firebase.recordGameCompletion(score: score)
         }
     }
 

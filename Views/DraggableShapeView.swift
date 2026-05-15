@@ -76,8 +76,14 @@ struct DraggableShapeView: View {
         return (w - gapSpan) / CGFloat(GameViewModel.boardSize)
     }
 
+    /// While dragging, freeze cell geometry so a one-frame preference/frame glitch
+    /// can’t balloon `placementCellSize` (reads as a huge yellow tile over the grid).
+    private var activePlacementCell: CGFloat {
+        dragFrozenPlacementCell ?? placementCellSize
+    }
+
     private var trayCellSize: CGFloat {
-        max(placementCellSize * 0.74, 18)
+        max(activePlacementCell * 0.74, 18)
     }
 
     /// Scale applied so the piece **looks** grid-sized while dragging without
@@ -86,10 +92,10 @@ struct DraggableShapeView: View {
     private var trayToPlacementVisualScale: CGFloat {
         let t = trayCellSize
         guard t > 1 else { return 1 }
-        return placementCellSize / t
+        return min(activePlacementCell / t, 1.65)
     }
 
-    private var fingerLiftOffset: CGFloat { placementCellSize * 1.5 }
+    private var fingerLiftOffset: CGFloat { activePlacementCell * 1.5 }
 
     /// Rejects stale or bogus rects (window-sized frames aren’t square; using them
     /// corrupts cell math and preview placement).
@@ -121,8 +127,11 @@ struct DraggableShapeView: View {
         boardFrameMatchesPreferenceStride
     }
 
+    @Environment(\.scenePhase) private var scenePhase
+
     @State private var dragTranslation: CGSize = .zero
     @State private var isDragging: Bool = false
+    @State private var dragFrozenPlacementCell: CGFloat?
     /// `DragGesture.Value.location` in `onEnded` can be wrong/intermittent; last `onChanged` is safer.
     @State private var lastDragGlobalLocation: CGPoint?
 
@@ -137,6 +146,7 @@ struct DraggableShapeView: View {
             .modifier(TrayPieceIdentityObserver(pieceID: shape.id, reset: {
                 viewModel.clearPreview()
                 lastDragGlobalLocation = nil
+                dragFrozenPlacementCell = nil
                 dragTranslation = .zero
                 isDragging = false
             }))
@@ -146,6 +156,15 @@ struct DraggableShapeView: View {
                 // may already be false while `previewCells` still reflects this piece.
                 viewModel.clearPreview()
                 lastDragGlobalLocation = nil
+                dragFrozenPlacementCell = nil
+                dragTranslation = .zero
+                isDragging = false
+            }
+            .onChange(of: scenePhase) { _, phase in
+                guard phase != .active else { return }
+                viewModel.clearPreview()
+                lastDragGlobalLocation = nil
+                dragFrozenPlacementCell = nil
                 dragTranslation = .zero
                 isDragging = false
             }
@@ -178,7 +197,10 @@ struct DraggableShapeView: View {
     private func makeDragGesture() -> some Gesture {
         DragGesture(minimumDistance: 2, coordinateSpace: .global)
             .onChanged { value in
-                if !isDragging { isDragging = true }
+                if !isDragging {
+                    isDragging = true
+                    dragFrozenPlacementCell = placementCellSize
+                }
 
                 lastDragGlobalLocation = value.location
 
@@ -196,6 +218,7 @@ struct DraggableShapeView: View {
             .onEnded { value in
                 let endGlobal = lastDragGlobalLocation ?? value.location
                 lastDragGlobalLocation = nil
+                dragFrozenPlacementCell = nil
 
                 let placed: Bool
                 if let local = boardLocalPoint(fromGlobal: endGlobal) {
@@ -231,7 +254,7 @@ struct DraggableShapeView: View {
     }
 
     private func anchorCell(for point: CGPoint) -> (row: Int, col: Int)? {
-        let cell = placementCellSize
+        let cell = activePlacementCell
         guard cell > 0 else { return nil }
 
         let g = Board.gridSpacing

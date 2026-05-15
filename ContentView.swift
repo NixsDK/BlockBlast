@@ -13,9 +13,18 @@ import SwiftUI
 struct ContentView: View {
 
     var body: some View {
-        // `managedObjectContext` is injected on `ContentView` from BlockBlastApp
-        // and propagates automatically to `GameView` and its descendants.
-        GameView()
+        TabView {
+            GameView()
+                .tabItem {
+                    Label("Play", systemImage: "gamecontroller.fill")
+                }
+
+            LeaderboardView()
+                .tabItem {
+                    Label("Leaderboard", systemImage: "trophy.fill")
+                }
+        }
+        .preferredColorScheme(.dark)
     }
 }
 

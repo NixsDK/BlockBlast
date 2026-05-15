@@ -4,17 +4,24 @@
 //
 //  Thin singleton that owns the two Firebase responsibilities the game cares
 //  about:
-//    1. Anonymous authentication on first launch (so every player has a
-//       stable `uid` we can attribute scores to).
-//    2. Reading and writing the global `Leaderboard` collection.
+//    1. Anonymous authentication on first launch (stable `uid`).
+//    2. Writing completed-game rows to the global `Leaderboard` collection.
 //
-//  Personal-best tracking is mirrored to UserDefaults so we can short-circuit
-//  the Firestore write when the new score doesn't beat the local record.
+//  Personal-best + last-10-games history are mirrored locally so the leaderboard
+//  tab works offline and isn’t blocked on the network.
 //
 
 import Foundation
 import FirebaseAuth
 import FirebaseFirestore
+
+private struct PersistedPlayedGame: Codable {
+    let id: String
+    let userId: String
+    let displayName: String
+    let score: Int
+    let createdAt: Date
+}
 
 @MainActor
 final class FirebaseManager: ObservableObject {
@@ -25,24 +32,29 @@ final class FirebaseManager: ObservableObject {
 
     @Published private(set) var currentUserId: String?
     @Published private(set) var personalBest: Int
-    @Published private(set) var topEntries: [LeaderboardEntry] = []
+    /// Trimmed name entered on the Leaderboard tab (persisted in UserDefaults).
+    @Published private(set) var playerDisplayName: String = ""
+    /// Newest-first; capped at 10 entries; persisted locally.
+    @Published private(set) var recentPlayedGames: [LeaderboardEntry] = []
 
     // MARK: - Internals
 
     private let db = Firestore.firestore()
     private let leaderboardCollection = "Leaderboard"
     private let personalBestKey = "BlockBlast.personalBest"
+    private let playerDisplayNameKey = "BlockBlast.playerDisplayName"
+    private static let recentPlayedGamesStorageKey = "BlockBlast.recentPlayedGames"
 
     private init() {
         self.personalBest = UserDefaults.standard.integer(forKey: personalBestKey)
         self.currentUserId = Auth.auth().currentUser?.uid
+        self.playerDisplayName = UserDefaults.standard.string(forKey: playerDisplayNameKey) ?? ""
+        self.recentPlayedGames = Self.loadRecentPlayedGamesFromStorage()
     }
 
     // MARK: - Authentication
 
     /// Signs the user in anonymously if they're not already authenticated.
-    /// Safe to call repeatedly (e.g. from `.task` on the root view) — it
-    /// short-circuits if `Auth.auth().currentUser` already exists.
     func signInAnonymouslyIfNeeded() async {
         if let existing = Auth.auth().currentUser {
             self.currentUserId = existing.uid
@@ -52,29 +64,78 @@ final class FirebaseManager: ObservableObject {
             let result = try await Auth.auth().signInAnonymously()
             self.currentUserId = result.user.uid
         } catch {
-            // We deliberately swallow the error here — the game is fully
-            // playable offline, leaderboard writes simply won't happen.
             print("[FirebaseManager] Anonymous sign-in failed: \(error)")
         }
     }
 
-    // MARK: - Personal best + Leaderboard
+    // MARK: - Player name
 
-    /// Returns `true` and persists if the supplied score beats the local
-    /// personal best. The Firestore write is fired-and-forgotten because UI
-    /// flow shouldn't block on the network.
+    func setPlayerDisplayName(_ raw: String) {
+        let trimmed = String(raw.prefix(24)).trimmingCharacters(in: .whitespacesAndNewlines)
+        playerDisplayName = trimmed
+        UserDefaults.standard.set(trimmed, forKey: playerDisplayNameKey)
+    }
+
+    private func effectiveLeaderboardDisplayName() -> String {
+        let t = playerDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !t.isEmpty { return t }
+        if let uid = currentUserId ?? Auth.auth().currentUser?.uid {
+            return "Player-\(uid.prefix(4))"
+        }
+        return "Player"
+    }
+
+    // MARK: - Personal best + game history
+
     @discardableResult
-    func submitScoreIfPersonalBest(_ score: Int) -> Bool {
+    func updatePersonalBestIfNeeded(_ score: Int) -> Bool {
         guard score > personalBest else { return false }
-
         personalBest = score
         UserDefaults.standard.set(score, forKey: personalBestKey)
-
-        Task { await writeLeaderboardEntry(score: score) }
         return true
     }
 
-    /// Pushes a new high-score document into Firestore.
+    /// Call once when a game ends: updates local history (always) and queues Firestore write (when signed in).
+    func recordGameCompletion(score: Int) {
+        let uid = currentUserId ?? Auth.auth().currentUser?.uid ?? ""
+        let snapshotName = effectiveLeaderboardDisplayName()
+        let entry = LeaderboardEntry(
+            id: UUID().uuidString,
+            userId: uid,
+            displayName: snapshotName,
+            score: score,
+            createdAt: Date()
+        )
+        var next = recentPlayedGames
+        next.insert(entry, at: 0)
+        if next.count > 10 { next = Array(next.prefix(10)) }
+        recentPlayedGames = next
+        persistRecentPlayedGames()
+
+        Task { await writeLeaderboardEntry(score: score) }
+    }
+
+    private static func loadRecentPlayedGamesFromStorage() -> [LeaderboardEntry] {
+        guard let data = UserDefaults.standard.data(forKey: Self.recentPlayedGamesStorageKey),
+              let decoded = try? JSONDecoder().decode([PersistedPlayedGame].self, from: data) else {
+            return []
+        }
+        return decoded.map {
+            LeaderboardEntry(id: $0.id, userId: $0.userId, displayName: $0.displayName, score: $0.score, createdAt: $0.createdAt)
+        }
+    }
+
+    private func persistRecentPlayedGames() {
+        let persisted = recentPlayedGames.map {
+            PersistedPlayedGame(id: $0.id, userId: $0.userId, displayName: $0.displayName, score: $0.score, createdAt: $0.createdAt)
+        }
+        if let data = try? JSONEncoder().encode(persisted) {
+            UserDefaults.standard.set(data, forKey: Self.recentPlayedGamesStorageKey)
+        }
+    }
+
+    // MARK: - Firestore
+
     private func writeLeaderboardEntry(score: Int) async {
         guard let uid = currentUserId ?? Auth.auth().currentUser?.uid else {
             print("[FirebaseManager] Cannot write score — no authenticated user")
@@ -83,7 +144,7 @@ final class FirebaseManager: ObservableObject {
 
         let payload: [String: Any] = [
             "userId": uid,
-            "displayName": "Player-\(uid.prefix(4))",
+            "displayName": effectiveLeaderboardDisplayName(),
             "score": score,
             "createdAt": Timestamp(date: Date()),
         ]
@@ -93,54 +154,5 @@ final class FirebaseManager: ObservableObject {
                 print("[FirebaseManager] Failed to write leaderboard entry: \(error)")
             }
         }
-    }
-
-    /// Fetches the top-N scores, descending. Call from the leaderboard screen
-    /// (or wire to a snapshot listener for live updates).
-    func fetchTopEntries(limit: Int = 25) async {
-        do {
-            let snapshot = try await db.collection(leaderboardCollection)
-                .order(by: "score", descending: true)
-                .limit(to: limit)
-                .getDocuments()
-
-            self.topEntries = snapshot.documents.compactMap(Self.entry(from:))
-        } catch {
-            print("[FirebaseManager] Failed to fetch leaderboard: \(error)")
-        }
-    }
-
-    /// Manual decode — avoids `FirebaseFirestoreSwift` / `data(as:)`.
-    private static func entry(from doc: QueryDocumentSnapshot) -> LeaderboardEntry? {
-        let data = doc.data()
-        guard let userId = data["userId"] as? String,
-              let displayName = data["displayName"] as? String
-        else { return nil }
-
-        let score: Int
-        if let s = data["score"] as? Int {
-            score = s
-        } else if let s64 = data["score"] as? Int64 {
-            score = Int(s64)
-        } else {
-            return nil
-        }
-
-        let createdAt: Date
-        if let ts = data["createdAt"] as? Timestamp {
-            createdAt = ts.dateValue()
-        } else if let date = data["createdAt"] as? Date {
-            createdAt = date
-        } else {
-            createdAt = Date()
-        }
-
-        return LeaderboardEntry(
-            id: doc.documentID,
-            userId: userId,
-            displayName: displayName,
-            score: score,
-            createdAt: createdAt
-        )
     }
 }
