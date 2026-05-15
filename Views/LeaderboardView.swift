@@ -149,7 +149,6 @@ private struct PlayerNameTextField: UIViewRepresentable {
         tf.spellCheckingType = .no
         tf.smartDashesType = .no
         tf.smartQuotesType = .no
-        tf.smartInsertInlineType = .no
         tf.textContentType = .nickname
         tf.returnKeyType = .done
         tf.delegate = context.coordinator
